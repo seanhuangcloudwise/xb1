@@ -43,6 +43,11 @@ class DataProvider(ABC):
     def sector_constituents(self, sector_code: str) -> list[dict]:
         """板块成分股 -> [{"code": 6 位代码, "name": 名称}]。"""
 
+    def list_universe(self) -> list[dict]:
+        """全部 A 股清单 -> [{"code": 6 位, "name": 名称}]。用于重建股票池名单（pool build）。
+        默认不支持；实现方不提供时抛 NotImplementedError。"""
+        raise NotImplementedError(f"{self.name} 不支持列出全部 A 股")
+
     @abstractmethod
     def trade_calendar(self) -> list[str]:
         """全部交易日（YYYY-MM-DD，升序）。"""

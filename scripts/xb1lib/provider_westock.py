@@ -43,6 +43,8 @@ CMD_SEARCH_SECTOR = ["search", "{name}", "--type", "sector"]
 CMD_SECTOR_CONSTITUENT = ["sector", "constituent", "{code}"]
 CMD_TRADE_CALENDAR = ["trade-calendar", "--trading-only", "--year", "{year}", "--limit", "9999"]  # 实测：必须指定年份，--limit 9999 才能拿全年（默认 limit≈50）
 CMD_TRADE_CALENDAR_YEARS = 8   # 拉最近 N 年（当年 + 前 N-1 年），覆盖 250 日 K 线所需历史
+CMD_UNIVERSE = ["universe", "--market", "{market}", "--type", "{type}", "--limit", "{limit}", "--offset", "{offset}"]
+CMD_UNIVERSE_PAGE = 1000      # 分页大小（一次要 6000 也返回过，但分页更稳）
 CMD_PROFILE = ["profile", "{codes}"]  # 实测：支持逗号批量，格式同 kline（sh/sz 前缀逗号分隔）
 
 CMD_TIMEOUT_SEC = 60          # 单次 subprocess 超时；可被 cfg.fetch.command_timeout 覆盖
@@ -435,6 +437,25 @@ def parse_constituents(text: str) -> list[dict]:
     return out
 
 
+def parse_universe(text: str) -> list[dict]:
+    """A 股清单表 -> [{"code": 6 位, "name": 名称}]。表格列形如 `| sh600000 | 浦发银行 |`。"""
+    tabs = parse_md_tables_raw(text)
+    out, seen = [], set()
+    for t in tabs:
+        ci, ni = _find_col(t.header, _CODE_N), _find_col(t.header, _NAME_N)
+        if ci is None:
+            continue
+        for r in t.rows:
+            m = _CODE_TOKEN.search(r[ci])
+            if not m or m.group(1) in seen:
+                continue
+            seen.add(m.group(1))
+            out.append({"code": m.group(1), "name": r[ni].strip() if ni is not None else ""})
+    if not out:
+        raise ParseError(f"A 股清单解析不到任何代码；输出前 200 字符：{(text or '')[:200]!r}")
+    return out
+
+
 def parse_calendar(text: str) -> list[str]:
     days: set[str] = set()
     for t in parse_md_tables_raw(text):
@@ -639,6 +660,22 @@ class WestockProvider(DataProvider):
             chunk = codes6[i:i + MAX_PROFILE_BATCH]
             text = self._run(CMD_PROFILE, codes=",".join(f"{market_prefix(c)}{c}" for c in chunk))
             out.update(parse_profiles(text, chunk))
+        return out
+
+    def list_universe(self) -> list[dict]:
+        """全部 A 股清单（分页拉全）。单页请求失败只在首页抛错，后续页中断则返回已取到的部分。"""
+        out, seen, offset = [], set(), 0
+        while True:
+            text = self._run(CMD_UNIVERSE, market="hs", type="stock",
+                             limit=str(CMD_UNIVERSE_PAGE), offset=str(offset))
+            page = parse_universe(text)
+            fresh = [x for x in page if x["code"] not in seen]
+            for x in fresh:
+                seen.add(x["code"])
+                out.append(x)
+            if len(page) < CMD_UNIVERSE_PAGE or not fresh:
+                break
+            offset += CMD_UNIVERSE_PAGE
         return out
 
     def search_sector(self, name: str) -> list[dict]:

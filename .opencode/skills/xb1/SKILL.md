@@ -21,6 +21,7 @@ description: A 股 B1 选股复盘（Z 哥 B1 战法：KDJ 的 J 值超卖 + 白
 | 写描述/逻辑/评估/备注 | `portfolio update <代码> --description … --thesis …` / `assess <代码> "结论"` / `note <代码> "备注"` |
 | 定期复核到期的档案 | `portfolio list --due` → `portfolio refresh`（更新资料 + 记录最新 B1 状态快照） |
 | 手动更新个股资料（名称/上市日期，ST 与次新过滤用） | `profile update [--codes 600519,000001] [--file 代码文件]`（不指定则取最近一次 run 的股票池；**run 从不联网取资料**，仅在用户明确要求时执行） |
+| 重建股票池名单（新股/退市后） | `pool build [--board main\|gem\|star\|bj\|all] [--dry-run]`，默认写 `pools/<board>.txt` |
 | 迁移到另一台机器（只带股票池 + 原始数据） | `export --out ~/xb1-data.tar.gz` → 新机器 `import ~/xb1-data.tar.gz` |
 | 数据概览页（本地已拉取数据的统计，只读） | `python3 $XB1/scripts/xb1.py overview [--open]`，产物 `$XB1/data/reports/overview.html` |
 | 新分组首次建档 | 先在 `config.yaml` 的 `universe.groups` 加分组，再 `portfolio init --group <组>` |

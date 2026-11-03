@@ -228,6 +228,13 @@ class FakeProvider(DataProvider):
             ok[c] = df.tail(int(days)).reset_index(drop=True).copy()
         return ok, bad
 
+    def list_universe(self) -> list[dict]:
+        """默认返回 self.profiles 的代码（测试用）；可用 universe 参数显式指定。"""
+        self.universe_calls = getattr(self, "universe_calls", 0) + 1
+        if getattr(self, "all_codes", None):
+            return [{"code": c, "name": ""} for c in self.all_codes]
+        return [{"code": c, "name": p.get("name", "")} for c, p in sorted(self.profiles.items())]
+
     def get_profiles(self, codes: list[str]) -> dict[str, dict]:
         codes6 = [normalize_code(c) for c in codes]
         self.profile_calls.append(codes6)

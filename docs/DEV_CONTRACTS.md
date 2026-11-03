@@ -76,6 +76,12 @@ F5 confirm：`at-3..at-1` 内任一日 base_level ∈ {perfect, standard}，且�
 ## 我（集成方）负责
 `state.py`（state.json、run.lock、幂等）、`logs`、`xb1.py` 全部子命令、`gc`、SKILL.md、setup.sh、集成测试。
 
+## pool.py（股票池名单）
+`build_codes(provider, board) -> (codes, total)`；`read_pool_file(path)` / `write_pool_file(path, codes, board, source)`；`diff_codes(old, new) -> (added, removed)`。
+- `board` 取 `main/gem/star/bj/all`，按 `models.board_of` 判定；数据源用 `DataProvider.list_universe()`（westock 分页拉 `universe --market hs --type stock`）。
+- 只写代码表文件（头注释 + 每行一个 6 位代码），不改 `config.yaml`；`--dry-run` 只报告新增/移除。
+- 名单会随新股/退市/转板变化，需定期重建；`config.yaml` 用 `universe.groups.<组>.files` 引用它。
+
 ## transfer.py（数据迁移）
 `export_bundle(paths, cfg, out, codes=None) -> dict`；`import_bundle(paths, archive, force=False) -> dict`；`pool_codes(paths, cfg) -> list[str]`。
 - 只打包 `config.yaml` + `data/raw/{kline,profile,calendar,universe}` + `data/raw/pool/pool.txt` + `manifest.json`；**不含** runs/reports/history/state/cache（可重算）。

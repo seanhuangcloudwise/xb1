@@ -78,6 +78,14 @@ def build_parser() -> argparse.ArgumentParser:
     ov = sub.add_parser("overview", parents=[common], help="数据概览：对本地已拉取的数据做统计，生成 HTML 页面")
     ov.add_argument("--out", help="输出路径（默认 data/reports/overview.html）")
     ov.add_argument("--open", action="store_true", help="生成后用默认浏览器打开")
+    pl = sub.add_parser("pool", parents=[common], help="股票池名单：从数据源重建代码表（如主板全池）")
+    pls = pl.add_subparsers(dest="pl_cmd", required=True)
+    pb = pls.add_parser("build", parents=[common], help="重新生成代码表文件（不改 config.yaml）")
+    pb.add_argument("--board", default="main", choices=["main", "gem", "star", "bj", "all"],
+                    help="板块：main 主板（默认）/ gem 创业板 / star 科创板 / bj 北交所 / all 全部 A 股")
+    pb.add_argument("--out", help="输出文件（默认 pools/<board>.txt）")
+    pb.add_argument("--dry-run", action="store_true", help="只统计不写文件")
+
     ex = sub.add_parser("export", parents=[common], help="导出数据包：只含股票池 + 这些股票的原始数据（换机器用）")
     ex.add_argument("--out", required=True, help="输出文件，如 ~/xb1-data.tar.gz")
     ex.add_argument("--codes", help="只导出这些代码（逗号分隔）；默认整个股票池")
@@ -330,6 +338,36 @@ def cmd_overview(args, paths, cfg) -> int:
     print(f"数据概览：{out}")
     if args.open:
         webbrowser.open(out.as_uri())
+    return C.EXIT_OK
+
+
+def cmd_pool(args, paths, cfg, provider) -> int:
+    """重建股票池代码表。只写名单文件，不动 config.yaml。"""
+    from xb1lib import pool as mod
+    prov = provider or pipeline.build_provider(cfg, paths)
+    try:
+        codes, total = mod.build_codes(prov, args.board)
+    except NotImplementedError as e:
+        raise XB1Error(str(e))
+    label = mod.BOARDS[args.board][0]
+    out = Path(args.out).expanduser() if args.out else paths.home / "pools" / f"{args.board}.txt"
+    old = mod.read_pool_file(out)
+    added, removed = mod.diff_codes(old, codes)
+    print(f"{label}：数据源返回 {total} 只，命中 {len(codes)} 只")
+    if old:
+        print(f"与现有名单相比：新增 {len(added)} 只，移除 {len(removed)} 只")
+        if added:
+            print("  新增：" + " ".join(added[:20]) + (" …" if len(added) > 20 else ""))
+        if removed:
+            print("  移除：" + " ".join(removed[:20]) + (" …" if len(removed) > 20 else ""))
+    if args.dry_run:
+        print("（--dry-run：未写文件）")
+        return C.EXIT_OK
+    if not codes:
+        raise XB1Error(f"{label}名单为空，未写入（数据源可能异常）")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    mod.write_pool_file(out, codes, args.board, getattr(prov, "name", "?"))
+    print(f"已写入：{out.resolve()}")
     return C.EXIT_OK
 
 
@@ -680,6 +718,8 @@ def main(argv=None, *, provider=None, sleep=time.sleep, today=None, now=None) ->
             return cmd_profile(args, paths, cfg, provider, sleep)
         if args.cmd == "overview":
             return cmd_overview(args, paths, cfg)
+        if args.cmd == "pool":
+            return cmd_pool(args, paths, cfg, provider)
         if args.cmd == "export":
             return cmd_export(args, paths, cfg)
         if args.cmd == "import":
