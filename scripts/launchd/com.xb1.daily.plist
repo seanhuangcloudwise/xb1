@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  备用定时（Agent 自动化为主；电脑休眠/Agent 未运行时用此兜底）。
+  安装：cp com.xb1.daily.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.xb1.daily.plist
+  周一至周五 21:00（按本机时区；本机时区需为 Asia/Shanghai）。非交易日 xb1.py 返回 10，无副作用。
+  日志写入 XB1 根目录下的 data/logs，不写别处。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.xb1.daily</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>python3</string>
+    <string>/Volumes/work/Workspace/XB1/scripts/xb1.py</string>
+    <string>run</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>XB1_HOME</key><string>/Volumes/work/Workspace/XB1</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>/Volumes/work/Workspace/XB1/data/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key><string>/Volumes/work/Workspace/XB1/data/logs/launchd.err.log</string>
+</dict>
+</plist>

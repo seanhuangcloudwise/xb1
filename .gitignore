@@ -1,0 +1,10 @@
+# 本地数据与个人配置：不进仓库（用 config.example.yaml 复制为 config.yaml 使用）
+data/
+config.yaml
+config.yaml.bak-*
+
+# 运行缓存
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store

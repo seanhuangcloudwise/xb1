@@ -1,0 +1,97 @@
+# XB1 配置模板。复制为 config.yaml 后按需修改。所有阈值均可调，代码内不得硬编码。
+universe:
+  # 默认池（顶层）：groups 之外的所有股票来源
+  stocks: []            # 6 位代码，如 ["300124", "601100"]
+  sectors: []           # 概念/行业板块名，如 ["人形机器人"]
+  files: []             # CSV/TXT 路径（每行一个代码，# 开头为注释）
+  sector_cache_days: 7  # 成分股缓存天数
+
+  # 分组池：每组一套独立的 stocks/sectors/files。run 始终对"默认池 + 所有分组"的并集计算一次；
+  # --group <名> / --tag <标签> 只是输出时的视图过滤（latest/list/run 都支持），不会改写落盘结果
+  # 新分组首次使用：portfolio init --group <名>（建档并按 tags.yaml 规则自动打标）
+  # 例：
+  # groups:
+  #   机器人板块:
+  #     sectors: ["人形机器人", "机器人概念", "减速器", "机器人执行器概念", "智元机器人"]
+  #     stocks: []
+  #     files: []
+  #   我的持仓:
+  #     stocks: ["300124", "601100"]
+  groups: {}
+
+filters:                # 自动剔除
+  exclude_st: true
+  exclude_suspended: true
+  exclude_bj: true
+  min_listed_days: 120  # 上市不足该交易日数则剔除
+
+fetch:
+  provider: westock
+  batch_size: 20        # westock 上限 20 只/次，不得超过
+  batch_interval: 1.5   # 批间隔秒
+  rate_limit_wait: 30   # LOCAL_RATE_LIMITED 后等待秒
+  max_retries: 3        # 仅重试该批
+  kline_days: 250
+  fq: qfq
+  amount_unit: 1        # westock 成交额单位换算到“元”的系数（实机核对后修正）
+  stale_ratio_limit: 0.2    # 未更新占比超过则整体重试
+  stale_retry_wait: 600     # 整体重试等待秒
+  stale_max_retries: 3
+  command: westock      # westock 可执行文件名/路径
+
+thresholds:
+  # 趋势闸门
+  g2_max_below_yellow_days: 2     # 允许连续跌破黄线的最大天数
+  g3_ma60_lookback: 5             # MA60 较 N 日前上升
+  g4_amount_window: 14
+  g4_min_amount: 150000000        # 1.5 亿（元）
+  # 触发
+  j_trigger: 13
+  j_watch_max: 20
+  # 质量评分
+  q1_j_below: -5
+  q2_vol_window: 20
+  q2_ratio_half: 0.5
+  q2_ratio_third: 0.3
+  q3_abs_pct: 2.0                 # %
+  q4_amp_main: 4.0                # % 主板
+  q4_amp_growth: 7.0              # % 创业板/科创板
+  q5_near_white_pct: 3.0          # %
+  q6_window: 10
+  q6_drop_pct: 4.0
+  q6_vol_mult: 2.0
+  q6_vol_avg_days: 5
+  q6_high_window: 60
+  q6_high_ratio: 0.85
+  q7_window: 30
+  q7_rise_pct: 15.0
+  # 分级
+  perfect_min_score: 75
+  standard_min_score: 50
+  # B1 确认
+  confirm_lookback: 3
+  confirm_min_pct: 3.0
+  confirm_vol_mult: 1.5
+  # 交易计划
+  stop_buffer: 0.99
+  stop_wide_pct: 8.0
+  max_position_pct: 20
+  time_stop_days: 4
+
+report:
+  top_n: 10             # 摘要每类最多显示条数
+  cards:                # K线卡片（data/reports/<日期>/kline_cards.html；--signals 为 b1_cards.html）
+    days: 90            # 每张卡片显示最近多少个交易日
+    include_watch: true # --signals 视图是否把“观察”级别也算作信号
+
+retention:
+  runs_days: 365
+  logs_days: 90
+  westock_logs_days: 30
+  universe_days: 90
+
+run:
+  close_time: "15:30"   # 当日此时间前运行视为盘中：结果带“盘中数据”提示，且不进入幂等缓存
+
+portfolio:
+  review_every_days: 30   # 档案默认复核周期（天）；portfolio list --due / refresh 据此判断到期

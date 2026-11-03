@@ -1,0 +1,1 @@
+.opencode/skills/xb1/SKILL.md

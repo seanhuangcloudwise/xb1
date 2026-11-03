@@ -1,0 +1,177 @@
+# XB1 标签定义文件
+# 用途：为股票档案（data/portfolio/{code}.yaml）打标签，便于筛选和追踪。
+# 编辑说明：
+#   - name：标签名，全局唯一，档案里用的就是这个字符串
+#   - description：说明这个标签的含义
+#   - color：可选，供前端/报告显示用（HTML颜色名或16进制）
+#   - category：分组，便于 list 时按类展示
+#   - sectors：可选，自动打标规则。portfolio init 时，股票若命中该分组里列出的任一板块，自动打此标签
+#   - min_sector_hits：可选，自动打标规则。命中该分组内 ≥N 个不同板块，自动打此标签
+#   （两条规则各自独立，满足任一即打；没有这两项的标签只能手工打：portfolio tag）
+# 新增标签：直接在此文件追加，或用 xb1.py portfolio tag-define <name> 命令添加（会保留本文件注释）
+
+tags:
+
+  # ── 行业方向 ────────────────────────────────────────
+  - name: 人形机器人
+    description: 主营或重要收入来自人形机器人产业链（执行器/减速器/传感器/本体/方案）
+    color: "#E63946"
+    category: 行业
+    sectors: [人形机器人]
+
+  - name: 工业机器人
+    description: 工业机器人整机或核心零部件
+    color: "#E07A3A"
+    category: 行业
+
+  - name: 减速器
+    description: 精密减速器（谐波/RV/行星）
+    color: "#F4A261"
+    category: 行业
+    sectors: [减速器]
+
+  - name: 伺服电机
+    description: 伺服驱动/电机/控制器
+    color: "#E9C46A"
+    category: 行业
+
+  - name: 丝杠滚珠
+    description: 滚珠丝杠/直线导轨等精密传动件
+    color: "#A8DADC"
+    category: 行业
+
+  - name: 传感器
+    description: 力觉/触觉/视觉/编码器等传感器
+    color: "#457B9D"
+    category: 行业
+
+  - name: 执行器
+    description: 机器人关节执行器（含线性/旋转）
+    color: "#1D3557"
+    category: 行业
+    sectors: [机器人执行器概念]
+
+  # ── 板块来源（由 portfolio init 按板块命中自动打；反映“数据源怎么归类”，不是对公司的判断）──
+  - name: 申万机器人
+    description: 申万三级行业「机器人」成分
+    color: "#6D597A"
+    category: 来源
+    sectors: [机器人]
+
+  - name: 智元链
+    description: 聚源「智元机器人」概念成分
+    color: "#B56576"
+    category: 来源
+    sectors: [智元机器人]
+
+  - name: 华为链
+    description: 聚源「华为机器人」概念成分
+    color: "#E56B6F"
+    category: 来源
+    sectors: [华为机器人]
+
+  - name: 空心杯电机
+    description: 聚源「空心杯电机」概念成分
+    color: "#EAAC8B"
+    category: 来源
+    sectors: [空心杯电机]
+
+  - name: 多板块交叉
+    description: 同时命中分组内 ≥2 个机器人相关板块，通常是产业链位置更明确的标的；适合作为备选池的优先筛选视图
+    color: "#355070"
+    category: 来源
+    min_sector_hits: 2
+
+  # ── 研究进展 ────────────────────────────────────────
+  - name: 深度研究
+    description: 已做过深度研究，有完整分析记录
+    color: "#2A9D8F"
+    category: 研究
+
+  - name: 待研究
+    description: 纳入视野、待后续深入研究
+    color: "#8ECAE6"
+    category: 研究
+
+  - name: 跟踪中
+    description: 定期跟踪财报/公告/行业变化
+    color: "#219EBC"
+    category: 研究
+
+  # ── 持仓状态 ────────────────────────────────────────
+  - name: 持仓
+    description: 当前持有
+    color: "#06D6A0"
+    category: 持仓
+
+  - name: 曾持仓
+    description: 历史上持有过，目前已清仓
+    color: "#A9DEF9"
+    category: 持仓
+
+  - name: 关注买点
+    description: 等待 B1 信号或合适买点进场
+    color: "#FFB703"
+    category: 持仓
+
+  # ── 质地评估 ────────────────────────────────────────
+  - name: 核心标的
+    description: 行业地位强、基本面优，B1 时优先加仓
+    color: "#FB8500"
+    category: 质地
+
+  - name: 弹性标的
+    description: 弹性大、波动高，适合短线 B1
+    color: "#FFBE0B"
+    category: 质地
+
+  - name: 谨慎
+    description: 基本面存疑或近期有重大风险，信号出现也要谨慎
+    color: "#9B2226"
+    category: 质地
+
+  # ── 其他 ────────────────────────────────────────────
+  - name: 小市值
+    description: 流通市值 <30 亿，流动性风险高
+    color: "#CDB4DB"
+    category: 其他
+
+  - name: 有公告风险
+    description: 近期有重大公告/解禁/诉讼等风险事项
+    color: "#E63946"
+    category: 其他
+
+  - name: 灵巧手
+    description: 截图分组：robot灵巧手
+    color: '#7209B7'
+    category: 分组
+
+  - name: 电驱
+    description: 截图分组：robot电驱
+    color: '#3A86FF'
+    category: 分组
+
+  - name: 视觉
+    description: 截图分组：robot视觉
+    color: '#FB5607'
+    category: 分组
+
+  - name: 核心纯正
+    description: 主营为机器人本体或机器人核心零部件，纯度经人工复核
+    color: '#E63946'
+    category: 纯度
+
+  - name: 核心跟踪
+    description: 机器人核心零部件明确，但当前主业仍偏传统，跟踪机器人收入占比提升
+    color: '#F4A261'
+    category: 纯度
+
+  - name: 游戏核心
+    description: 主营为游戏研发/发行/运营，游戏收入占绝对主导，纯度经人工复核
+    color: '#6A4C93'
+    category: 纯度
+
+  - name: 游戏跟踪
+    description: 游戏为最大业务，但仍含汽车零部件/影视/扑克牌/日化等非游戏板块，跟踪游戏收入占比
+    color: '#8AC926'
+    category: 纯度
