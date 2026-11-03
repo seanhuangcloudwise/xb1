@@ -52,7 +52,26 @@ def resolve_date(date_arg: Optional[str], today: str) -> str:
 
 
 def load_run(paths: Paths, date: str) -> Optional[dict]:
-    return atomic.read_json(paths.signals_json(date), default=None)
+    """读取某日结果。落盘时记录的报告路径改为按当前 XB1_HOME 重算，
+    这样把 data/ 拷到另一台机器（或换目录）后，摘要里显示的仍是本机真实路径。"""
+    run = atomic.read_json(paths.signals_json(date), default=None)
+    if isinstance(run, dict):
+        rebase_paths(run, paths)
+    return run
+
+
+def rebase_paths(run: dict, paths: Paths) -> dict:
+    """把 run 里的绝对路径字段改写为当前 paths 下的位置（兼容旧数据/迁移后的数据）。"""
+    d = run.get("date")
+    if not d:
+        return run
+    try:
+        run["report_xlsx_path"] = str(paths.report_xlsx(str(d)))
+        run["report_md_path"] = str(paths.report_md(str(d)))
+        run["report_html_path"] = str(paths.report_html(str(d)))
+    except Exception:
+        pass          # 路径异常不影响结果读取
+    return run
 
 
 def latest_date(paths: Paths) -> Optional[str]:

@@ -78,6 +78,14 @@ def build_parser() -> argparse.ArgumentParser:
     ov = sub.add_parser("overview", parents=[common], help="数据概览：对本地已拉取的数据做统计，生成 HTML 页面")
     ov.add_argument("--out", help="输出路径（默认 data/reports/overview.html）")
     ov.add_argument("--open", action="store_true", help="生成后用默认浏览器打开")
+    ex = sub.add_parser("export", parents=[common], help="导出数据包：只含股票池 + 这些股票的原始数据（换机器用）")
+    ex.add_argument("--out", required=True, help="输出文件，如 ~/xb1-data.tar.gz")
+    ex.add_argument("--codes", help="只导出这些代码（逗号分隔）；默认整个股票池")
+
+    im = sub.add_parser("import", parents=[common], help="导入 export 生成的数据包")
+    im.add_argument("archive", help="数据包路径")
+    im.add_argument("--force", action="store_true", help="覆盖本机已存在的同名数据和 config.yaml")
+
     sub.add_parser("backfill", parents=[common], help="回填历史信号的 T+3/5/10 收益")
 
     c = sub.add_parser("config", parents=[common], help="查看/修改阈值")
@@ -168,7 +176,7 @@ def cmd_run(args, paths, cfg, provider, sleep, today, now=None) -> int:
             except Exception as e:
                 log.write(f"cards failed: {type(e).__name__}: {e}")
         log.write("idempotent hit -> 返回已有结果")
-        _emit(run, cfg, args.format, paths.brief_md(date).read_text(encoding="utf-8"), args.group, args.tag)
+        _emit(run, cfg, args.format, None, args.group, args.tag)   # 按当前 XB1_HOME 重新渲染，路径不会是旧的
         return C.EXIT_OK
 
     log.write(f"RUN date={date} today={today} force={args.force} format={args.format}")
@@ -221,8 +229,7 @@ def _load_for(paths, date_arg):
 def cmd_latest(args, paths, cfg) -> int:
     _check_view(cfg, args)
     d, run = _load_for(paths, None)
-    brief = paths.brief_md(d)
-    _emit(run, cfg, args.format, brief.read_text(encoding="utf-8") if brief.exists() else None, args.group, args.tag)
+    _emit(run, cfg, args.format, None, args.group, args.tag)
     return C.EXIT_OK
 
 
@@ -323,6 +330,31 @@ def cmd_overview(args, paths, cfg) -> int:
     print(f"数据概览：{out}")
     if args.open:
         webbrowser.open(out.as_uri())
+    return C.EXIT_OK
+
+
+def cmd_export(args, paths, cfg) -> int:
+    from xb1lib import transfer
+    codes = [c.strip() for c in args.codes.split(",") if c.strip()] if args.codes else None
+    m = transfer.export_bundle(paths, cfg, Path(args.out).expanduser(), codes=codes)
+    mb = m["bytes"] / 1024 / 1024
+    print(f"已导出：{Path(args.out).expanduser().resolve()}（{mb:.1f} MB）")
+    print(f"股票 {m['codes']} 只｜K 线 {m['kline_files']} 个｜资料 {m['profile_files']} 个"
+          + (f"｜缺 K 线 {m['missing_kline']} 只" if m["missing_kline"] else ""))
+    if m.get("config_uses_files"):
+        print("[提示] config.yaml 引用了外部代码文件，换机器后该绝对路径可能失效；"
+              "包内已附 data/raw/pool/pool.txt（扁平代码表），可直接改为引用它")
+    if not m["config_included"]:
+        print("[提示] 本机没有 config.yaml，包里不含股票池配置")
+    return C.EXIT_OK
+
+
+def cmd_import(args, paths, cfg) -> int:
+    from xb1lib import transfer
+    r = transfer.import_bundle(paths, Path(args.archive).expanduser(), force=args.force)
+    print(f"已导入 {r['copied_files']} 个文件到 {paths.home}")
+    print(f"配置文件：{r['config']}")
+    print("下一步：确认 config.yaml 的股票池后执行 run（结果不随包迁移，需要重算）")
     return C.EXIT_OK
 
 
@@ -648,6 +680,10 @@ def main(argv=None, *, provider=None, sleep=time.sleep, today=None, now=None) ->
             return cmd_profile(args, paths, cfg, provider, sleep)
         if args.cmd == "overview":
             return cmd_overview(args, paths, cfg)
+        if args.cmd == "export":
+            return cmd_export(args, paths, cfg)
+        if args.cmd == "import":
+            return cmd_import(args, paths, cfg)
         if args.cmd == "backfill":
             return cmd_backfill(args, paths, cfg)
         if args.cmd == "config":

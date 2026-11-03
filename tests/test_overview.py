@@ -50,3 +50,23 @@ def test_empty_home_renders_without_error(tmp_path):
     assert s["stocks"] == 0 and s["latest"] is None
     html = overview.build_html(paths, _cfg(), stats=s)
     assert "暂无数据" in html
+
+
+def test_load_run_rebases_paths_after_moving_data(tmp_path):
+    """把 data/ 拷到别处后，摘要里的路径应指向新位置而不是原机器路径。"""
+    from xb1lib import pipeline
+    from xb1lib import atomic
+
+    home = tmp_path / "newhome"
+    paths = Paths(home=home, check=False)
+    paths.ensure_dirs()
+    run = {"date": D, "results": [], "checksum": "x",
+           "report_xlsx_path": "/old/place/data/reports/2026-11-03/b1_report.xlsx",
+           "report_md_path": "/old/place/data/reports/2026-11-03/b1_report.md",
+           "report_html_path": "/old/place/data/reports/2026-11-03/b1_cards.html"}
+    atomic.write_json(paths.signals_json(D), run)
+    got = pipeline.load_run(paths, D)
+    assert got["report_xlsx_path"] == str(paths.report_xlsx(D))
+    assert got["report_md_path"] == str(paths.report_md(D))
+    assert got["report_html_path"] == str(paths.report_html(D))
+    assert "/old/place" not in got["report_html_path"]

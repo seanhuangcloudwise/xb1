@@ -76,6 +76,12 @@ F5 confirm：`at-3..at-1` 内任一日 base_level ∈ {perfect, standard}，且�
 ## 我（集成方）负责
 `state.py`（state.json、run.lock、幂等）、`logs`、`xb1.py` 全部子命令、`gc`、SKILL.md、setup.sh、集成测试。
 
+## transfer.py（数据迁移）
+`export_bundle(paths, cfg, out, codes=None) -> dict`；`import_bundle(paths, archive, force=False) -> dict`；`pool_codes(paths, cfg) -> list[str]`。
+- 只打包 `config.yaml` + `data/raw/{kline,profile,calendar,universe}` + `data/raw/pool/pool.txt` + `manifest.json`；**不含** runs/reports/history/state/cache（可重算）。
+- 配置含 `universe.sectors` 时拒绝导出（离线无法展开成分股）；含 `files` 时提示绝对路径可能失效。
+- 导入会校验包内路径（拒绝 `..` 等越界条目）；本机已有 `config.yaml` 时保留，包的副本另存为 `config.yaml.from-bundle`。
+
 ## Skill 注册（OpenCode）
 - 正本：`$XB1/.opencode/skills/xb1/SKILL.md`，ID 为 `xb1`（由目录名决定，与 frontmatter 的 `name: XB1` 无关）。
 - 根目录 `SKILL.md` 是指向正本的软链，供人读与其他 Agent（WorkBuddy/Claude）读取，避免双份内容漂移。
