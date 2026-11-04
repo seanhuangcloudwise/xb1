@@ -98,6 +98,7 @@ def test_cards_page_has_amv_tab(tmp_path):
     assert "活跃市值 0AMV" in html and "成本均线" in html
     assert "复刻" in html and "不是指南针原值" in html
     assert html.count('fill="#f6465d"') + html.count('fill="#2ebd85"') > 0     # STICKLINE 柱
+    assert "近 9 个月" in html and html.count('class="chartbox"') == 2           # 半年 + 9 个月两张图
 
 
 def test_cards_page_without_series_shows_placeholder(tmp_path):

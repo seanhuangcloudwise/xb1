@@ -289,19 +289,20 @@ def _chart_svg(r: dict, df: Optional[pd.DataFrame]) -> str:
 
 
 # --------------------------------------------------------------------------- 活跃市值
-_MV_DAYS = 120
+_MV_DAYS = 120          # 近 120 个交易日（约半年）
+_MV_DAYS_LONG = 183     # 近 9 个月（约 183 个交易日）
 
 
 def _fmt_mv(v: float) -> str:
     return f"{v / 1e12:.2f} 万亿"
 
 
-def _market_kline_svg(series: "pd.DataFrame") -> str:
+def _market_kline_svg(series: "pd.DataFrame", days: int = _MV_DAYS) -> str:
     """0AMV 走势：指南针 STICKLINE 样式——从昨日数值连到今日数值的实心柱（红涨绿跌），
     叠加 5 日 / 13 日成本均线 C5、C13。"""
     if series is None or not len(series):
         return '<p class="muted">暂无活跃市值数据</p>'
-    s = series.tail(_MV_DAYS).reset_index(drop=True)
+    s = series.tail(days).reset_index(drop=True)
     vals = [float(x) for x in s["amv"]]
     if len(vals) < 2:
         return '<p class="muted">数据不足</p>'
@@ -404,7 +405,10 @@ def _market_panel(series: "pd.DataFrame", cfg: dict) -> str:
     叠加 5 日 / 13 日成本均线（DMA 加权）。<b>用本地股票池成交额复刻，不是指南针原值</b>，
     形态与拐点可比，绝对数值不等价。</p>
   <div class="kpis small">{kpi_html}</div>
+  <h4>活跃市值日K（近 {_MV_DAYS} 个交易日｜单位：万亿元｜副图为成交额）</h4>
   <div class="chartbox">{_market_kline_svg(series)}</div>
+  <h4>活跃市值日K（近 9 个月｜{_MV_DAYS_LONG} 个交易日）</h4>
+  <div class="chartbox">{_market_kline_svg(series, _MV_DAYS_LONG)}</div>
   <h4>四区域判别（0AMV 与两条成本均线的相对位置）</h4>
   <ul class="regions">{legend}</ul>
 </div>'''
