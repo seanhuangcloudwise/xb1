@@ -78,6 +78,9 @@ thresholds:
   max_position_pct: 20
   time_stop_days: 4
 
+market:                 # 活跃市值代理指标（K线卡片里的"活跃市值"标签页）
+  active_amount_floor: 100000000   # 当日成交额 ≥ 该值（元）的个股才算"活跃"，默认 1 亿
+
 report:
   top_n: 10             # 摘要每类最多显示条数
   cards:                # K线卡片（data/reports/<日期>/kline_cards.html；--signals 为 b1_cards.html）

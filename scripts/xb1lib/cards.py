@@ -288,6 +288,131 @@ def _chart_svg(r: dict, df: Optional[pd.DataFrame]) -> str:
     return "".join(parts)
 
 
+# --------------------------------------------------------------------------- 活跃市值
+_MV_DAYS = 120
+
+
+def _fmt_mv(v: float) -> str:
+    return f"{v / 1e12:.2f} 万亿"
+
+
+def _market_svg(series: "pd.DataFrame") -> str:
+    """活跃市值走势（近 _MV_DAYS 日），面积 + 折线。"""
+    if series is None or not len(series):
+        return '<p class="muted">暂无活跃市值数据</p>'
+    s = series.tail(_MV_DAYS).reset_index(drop=True)
+    vals = [float(x) for x in s["active_mv"]]
+    if not vals:
+        return '<p class="muted">暂无活跃市值数据</p>'
+    w, h = 640.0, 210.0
+    pad_l, pad_r, pad_t, pad_b = 6.0, 58.0, 12.0, 22.0
+    lo, hi = min(vals), max(vals)
+    if hi <= lo:
+        hi, lo = hi * 1.001 + 1, lo * 0.999 - 1
+    span = hi - lo
+    n = len(vals)
+
+    def x(i):
+        return pad_l + (w - pad_l - pad_r) * (i / max(1, n - 1))
+
+    def y(v):
+        return pad_t + (h - pad_t - pad_b) * (hi - v) / span
+
+    parts = [f'<svg class="chart" viewBox="0 0 {w:.0f} {h:.0f}" role="img" aria-label="活跃市值走势">']
+    for k in range(4):
+        v = hi - span * k / 3.0
+        yy = y(v)
+        parts.append(f'<line x1="{pad_l}" y1="{yy:.1f}" x2="{w - pad_r}" y2="{yy:.1f}" stroke="#1e293b"/>')
+        parts.append(f'<text x="{w - pad_r + 4}" y="{yy + 3.4:.1f}" class="axis">{v / 1e12:.1f}</text>')
+    pts = " ".join(f"{x(i):.1f},{y(v):.1f}" for i, v in enumerate(vals))
+    parts.append(f'<polygon points="{x(0):.1f},{h - pad_b:.1f} {pts} {x(n - 1):.1f},{h - pad_b:.1f}" '
+                 f'fill="rgba(37,99,235,.16)"/>')
+    parts.append(f'<polyline points="{pts}" fill="none" stroke="#2563eb" stroke-width="1.8" '
+                 f'stroke-linejoin="round"/>')
+    parts.append(f'<circle cx="{x(n - 1):.1f}" cy="{y(vals[-1]):.1f}" r="3" fill="#2563eb"/>')
+    for i in (0, n // 2, n - 1):
+        anchor = "start" if i == 0 else ("end" if i == n - 1 else "middle")
+        parts.append(f'<text x="{x(i):.1f}" y="{h - 6:.1f}" class="axis" text-anchor="{anchor}">'
+                     f'{_e(str(s["date"].iloc[i])[5:])}</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _chg_svg(series: "pd.DataFrame") -> str:
+    """日变化柱状图，标出 +4% / -2.3% 参考线。"""
+    if series is None or len(series) < 2:
+        return '<p class="muted">数据不足</p>'
+    s = series.tail(_MV_DAYS).reset_index(drop=True)
+    chg = [None] + [((float(s["active_mv"].iloc[i]) / float(s["active_mv"].iloc[i - 1]) - 1) * 100)
+                    if float(s["active_mv"].iloc[i - 1]) else None for i in range(1, len(s))]
+    vals = [c for c in chg if c is not None]
+    if not vals:
+        return '<p class="muted">数据不足</p>'
+    w, h = 640.0, 156.0
+    pad_l, pad_r, pad_t, pad_b = 6.0, 40.0, 10.0, 18.0
+    lo = min(min(vals), -2.3)
+    hi = max(max(vals), 4.0)
+    pad = max(0.4, (hi - lo) * 0.08)
+    lo, hi = lo - pad, hi + pad
+    span = hi - lo
+    n = len(chg)
+    bw = max(1.0, (w - pad_l - pad_r) / n * 0.62)
+
+    def x(i):
+        return pad_l + (w - pad_l - pad_r) * (i + 0.5) / n
+
+    def y(v):
+        return pad_t + (h - pad_t - pad_b) * (hi - v) / span
+
+    parts = [f'<svg class="chart" viewBox="0 0 {w:.0f} {h:.0f}" role="img" aria-label="活跃市值日变化">']
+    for lv, color, label in ((4.0, "#dc2626", "+4%"), (-2.3, "#16a34a", "-2.3%")):
+        parts.append(f'<line x1="{pad_l}" y1="{y(lv):.1f}" x2="{w - pad_r}" y2="{y(lv):.1f}" '
+                     f'stroke="{color}" stroke-width="1" stroke-dasharray="4 3" opacity=".8"/>')
+        parts.append(f'<text x="{w - pad_r + 3}" y="{y(lv) + 3:.1f}" class="axis">{label}</text>')
+    zero = y(0.0)
+    parts.append(f'<line x1="{pad_l}" y1="{zero:.1f}" x2="{w - pad_r}" y2="{zero:.1f}" stroke="#475569"/>')
+    for i, v in enumerate(chg):
+        if v is None:
+            continue
+        top = y(max(v, 0.0))
+        hh = max(0.8, abs(y(v) - zero))
+        color = _C_UP if v >= 0 else _C_DOWN
+        parts.append(f'<rect x="{x(i) - bw / 2:.1f}" y="{top:.1f}" width="{bw:.1f}" height="{hh:.1f}" '
+                     f'fill="{color}" opacity=".85"/>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _market_panel(series: "pd.DataFrame", cfg: dict) -> str:
+    from . import market as M
+    if series is None or not len(series):
+        return '<div class="card"><h3>活跃市值</h3><p class="muted">暂无数据：先运行 run 拉取日 K 线。</p></div>'
+    s = M.summarize(series)
+    zone, zone_label = M.zone(s.get("chg"), s.get("cum3"))
+    floor = M.default_floor(cfg)
+    chg = "-" if s.get("chg") is None else f"{s['chg']:+.2f}%"
+    cum3 = "-" if s.get("cum3") is None else f"{s['cum3']:+.2f}%"
+    kpis = [
+        (_fmt_mv(s["active_mv"]), "当日活跃市值"),
+        (chg, "日变化"),
+        (cum3, "3 日累计"),
+        (f"{s['n_active']:,} / {s['n_total']:,}", "活跃家数 / 全部"),
+        (f"{s['ratio']:.1%}" if s.get("ratio") else "-", "占总流通市值"),
+        (f"{s['amount'] / 1e8:,.0f} 亿", "当日成交额"),
+    ]
+    kpi_html = "".join(f'<div class="kpi"><b>{_e(v)}</b><span>{_e(k)}</span></div>' for v, k in kpis)
+    return f'''<div class="card">
+  <h3>活跃市值（代理指标）<span class="zone z-{_e(zone)}">{_e(zone_label)}</span></h3>
+  <p class="sub2">口径：当日成交额 ≥ {floor / 1e8:g} 亿元的个股流通市值之和（流通股本 = 成交量×100 ÷ 换手率）。
+    <b>这是用本地日 K 构造的代理值，不是指南针原指标</b>，阈值 4% / -2.3% 沿用 Z 哥口径，未做校准。</p>
+  <div class="kpis small">{kpi_html}</div>
+  <h4>活跃市值走势（近 {_MV_DAYS} 个交易日，单位：万亿元）</h4>
+  <div class="chartbox">{_market_svg(series)}</div>
+  <h4>日变化（%）</h4>
+  <div class="chartbox">{_chg_svg(series)}</div>
+</div>'''
+
+
 # --------------------------------------------------------------------------- 卡片
 def _hits_text(r: dict, limit: int = 4) -> str:
     hits = [str(h) for h in (r.get("hits") or [])]
@@ -442,6 +567,28 @@ h1 .thin{font-weight:400;color:var(--muted);font-size:14px;margin-left:8px}
 [hidden]{display:none!important}
 @media (max-width:720px){.grid{grid-template-columns:1fr}.search{margin-left:0;width:100%}.search input{width:100%}.wrap{padding:18px 12px 32px}}
 @media print{body{background:#fff}.toolbar{display:none}.card{box-shadow:none;break-inside:avoid}.wrap{max-width:none}}
+/* ---- 标签页 ---- */
+.tabs{display:flex;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--line)}
+.tabs button{font:inherit;font-size:14px;font-weight:600;background:none;border:0;border-bottom:2px solid transparent;
+             color:var(--muted);padding:9px 14px;cursor:pointer;margin-bottom:-1px}
+.tabs button:hover{color:#334155}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--ink)}
+.tabs button b{font-weight:600;font-size:12px;opacity:.7;margin-left:4px}
+.panel[hidden]{display:none}
+/* ---- 活跃市值 ---- */
+.card h3{margin:0 0 8px;font-size:15px;display:flex;align-items:center;gap:10px}
+.card h4{margin:16px 0 6px;font-size:12.5px;color:var(--muted);font-weight:600}
+.sub2{margin:0 0 12px;font-size:12px;color:var(--muted);line-height:1.6}
+.kpis.small{grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:6px}
+.kpis.small .kpi{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpis.small .kpi b{font-size:16px}
+.chartbox{background:#0b1220;border-radius:10px;padding:8px 6px 4px}
+.chartbox .chart .axis{fill:#94a3b8;font-size:10.5px}
+.zone{font-size:12px;font-weight:600;border-radius:6px;padding:2px 8px}
+.z-bull{background:#fee2e2;color:#b91c1c}
+.z-bear{background:#dcfce7;color:#15803d}
+.z-neutral{background:#fef3c7;color:#b45309}
+.z-unknown{background:#e2e8f0;color:#475569}
 """
 
 _JS = """
@@ -472,6 +619,16 @@ _JS = """
   });
   if(q) q.addEventListener('input',apply);
   apply();
+  var tabs=[].slice.call(document.querySelectorAll('.tabs button'));
+  tabs.forEach(function(b){
+    b.addEventListener('click',function(){
+      var name=b.getAttribute('data-tab');
+      tabs.forEach(function(x){x.classList.toggle('on',x===b)});
+      [].slice.call(document.querySelectorAll('.panel')).forEach(function(p){
+        p.hidden = p.id !== 'panel-'+name;
+      });
+    });
+  });
 })();
 """
 
@@ -486,7 +643,8 @@ def _ordered_all(run: dict, levels: tuple) -> list[dict]:
 
 
 def build_html(run: dict, cfg: dict, frames: Optional[Mapping[str, pd.DataFrame]] = None,
-               paths: Optional[Paths] = None, include_all: bool = False) -> str:
+               paths: Optional[Paths] = None, include_all: bool = False,
+               market_series: Optional[pd.DataFrame] = None) -> str:
     """生成完整页面。frames 缺省时按需从 paths.indicators(code) 回读。
 
     include_all=False：只画有 B1 信号（含观察）的股票；True：画出结果里全部股票（含无信号）。
@@ -532,6 +690,8 @@ def build_html(run: dict, cfg: dict, frames: Optional[Mapping[str, pd.DataFrame]
         body = ('<div class="empty"><b>今日无 B1 信号</b>'
                 '股票池中没有符合 B1 条件（或观察）的股票，收盘后再运行 run 看看。</div>')
 
+    market_html = _market_panel(market_series, cfg)
+
     return f'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -551,14 +711,23 @@ def build_html(run: dict, cfg: dict, frames: Optional[Mapping[str, pd.DataFrame]
     </div>
     <div class="counts">{count_html}</div>
   </header>
-  <div class="toolbar">
-    <div class="inner">
-      <div class="filters">{filters}</div>
-      <div class="search"><input id="q" type="search" placeholder="代码 / 名称" aria-label="搜索股票"></div>
-      <span class="shown" id="shown">{total} / {total}</span>
+  <nav class="tabs">
+    <button class="on" data-tab="cards">{title} <b>{total}</b></button>
+    <button data-tab="market">活跃市值</button>
+  </nav>
+  <section class="panel" id="panel-cards">
+    <div class="toolbar">
+      <div class="inner">
+        <div class="filters">{filters}</div>
+        <div class="search"><input id="q" type="search" placeholder="代码 / 名称" aria-label="搜索股票"></div>
+        <span class="shown" id="shown">{total} / {total}</span>
+      </div>
     </div>
-  </div>
-  {body}
+    {body}
+  </section>
+  <section class="panel" id="panel-market" hidden>
+    {market_html}
+  </section>
   <footer class="page-foot">
     <span>红涨绿跌｜白线 EMA(EMA(C,10),10)｜黄线 (MA14+MA28+MA57+MA114)/4｜BBI (MA3+MA6+MA12+MA24)/4</span>
     <span>{_e(R.DISCLAIMER)}</span>
@@ -572,10 +741,22 @@ def build_html(run: dict, cfg: dict, frames: Optional[Mapping[str, pd.DataFrame]
 
 def write_html(out: Path, run: dict, cfg: dict,
                frames: Optional[Mapping[str, pd.DataFrame]] = None,
-               paths: Optional[Paths] = None, include_all: bool = False) -> Path:
-    """原子写任意目标的 HTML 页面。"""
+               paths: Optional[Paths] = None, include_all: bool = False,
+               market_series: Optional[pd.DataFrame] = None) -> Path:
+    """原子写任意目标的 HTML 页面。market_series 缺省时按本地 K 线现算（带缓存）。"""
     out = Path(out)
-    atomic.write_text(out, build_html(run, cfg, frames=frames, paths=paths, include_all=include_all))
+    if market_series is None and paths is not None:
+        try:
+            from . import market as M
+            market_series = M.load_or_build(paths, cfg, kline_latest=str(run.get("date") or ""))
+            d = str(run.get("date") or "")
+            if d and market_series is not None and len(market_series):
+                # 只显示到复盘日，避免历史回放时把"今天"的行情画进旧页面
+                market_series = market_series[market_series["date"].astype(str) <= d].reset_index(drop=True)
+        except Exception:
+            market_series = None
+    atomic.write_text(out, build_html(run, cfg, frames=frames, paths=paths,
+                                      include_all=include_all, market_series=market_series))
     return out
 
 

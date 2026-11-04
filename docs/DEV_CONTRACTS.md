@@ -76,6 +76,12 @@ F5 confirm：`at-3..at-1` 内任一日 base_level ∈ {perfect, standard}，且�
 ## 我（集成方）负责
 `state.py`（state.json、run.lock、幂等）、`logs`、`xb1.py` 全部子命令、`gc`、SKILL.md、setup.sh、集成测试。
 
+## market.py（活跃市值代理）
+`compute_series(paths, cfg, days=250) -> DataFrame[date, active_mv, total_mv, n_active, n_total, amount]`；`load_or_build(...)`（带 `cache/market/active_mv.parquet` 缓存）；`summarize(series)`；`zone(chg, cum3)`。
+- **是代理指标，不是指南针原值**。口径：`流通股本 = 成交量(手)×100 ÷ 换手率%`，`个股流通市值 = 收盘 × 流通股本`；`活跃市值 = Σ 当日成交额 ≥ market.active_amount_floor 的个股流通市值`。
+- 只统计"数据已更到最新交易日"的股票，避免旧池子遗留文件造成口径跳变。
+- `zone` 沿用 Z 哥的 4% / -2.3% 阈值，代理指标未校准，仅作参考。
+
 ## pool.py（股票池名单）
 `build_codes(provider, board) -> (codes, total)`；`read_pool_file(path)` / `write_pool_file(path, codes, board, source)`；`diff_codes(old, new) -> (added, removed)`。
 - `board` 取 `main/gem/star/bj/all`，按 `models.board_of` 判定；数据源用 `DataProvider.list_universe()`（westock 分页拉 `universe --market hs --type stock`）。

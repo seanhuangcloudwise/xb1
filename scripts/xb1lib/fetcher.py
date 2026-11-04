@@ -3,6 +3,7 @@
 fetch_klines 语义（DEV_CONTRACTS + 下列选择）：
 - 缓存：data/raw/kline/{code}.parquet（标准列、升序）。缓存末日期 ≥ trade_date -> 不联网；
   缓存存在但落后 -> 只补缺失日期（请求 days = 距今自然日数 + 2，≥ kline_days 则改全量）；无缓存/缓存损坏 -> 全量 kline_days。
+  增量合并后，用 TradeCalendar 列出 (缓存末日, trade_date] 的全部交易日，断言合并结果中均有对应 bar；任一缺失则该只回退全量重拉（日历不可用则跳过）。
   增量拿回的重叠行收盘价与缓存不一致（除权导致前复权序列整体改写）或没有重叠 -> 该只回退全量重拉并覆盖缓存。
 - `--date` 历史回放：返回前截断到 date <= trade_date；缓存已覆盖则不联网；需联网时 days 额外加上
   trade_date 到今天的间隔（provider 没有“截止日期”参数，只能多拉再截断）。缓存是满窗口、但截断到 trade_date
@@ -21,6 +22,7 @@ fetch_klines 语义（DEV_CONTRACTS + 下列选择）：
 """
 from __future__ import annotations
 
+import bisect
 import math
 import time
 from collections import deque
@@ -30,7 +32,7 @@ import numpy as np
 import pandas as pd
 
 from . import atomic
-from .calendar import days_between, normalize_date, shanghai_today
+from .calendar import TradeCalendar, days_between, normalize_date, shanghai_today
 from .constants import FETCH_FAILED, FETCH_RATE_LIMITED, FETCH_STALE, FETCH_SUSPENDED, KLINE_COLUMNS
 from .errors import ParseError, RateLimited, SourceUnavailable
 from .models import normalize_code
@@ -90,6 +92,24 @@ def _consistent(cache: pd.DataFrame, new: pd.DataFrame) -> bool:
     return bool(np.isclose(m["close_c"].to_numpy(float), m["close_n"].to_numpy(float), rtol=1e-4, atol=1e-6).all())
 
 
+def _gap_trading_days_missing(merged, last_date: str, td_date: str, cal_days) -> list:
+    """返回 (last_date, td_date] 内、merged 缺失的交易日列表。
+
+    cal_days 为升序 ISO 日期字符串列表（来自 TradeCalendar.days）。用于补缺后断言：
+    若缓存末日 last_date 到 trade_date 之间的任一交易日在合并结果里没有对应 bar，返回这些缺失日，
+    调用方据此对该只回退全量重拉。日历不可用（cal_days 为 None/空）或 last_date >= td_date 时返回空列表。
+    """
+    if not cal_days or last_date >= td_date:
+        return []
+    lo = bisect.bisect_right(cal_days, last_date)
+    hi = bisect.bisect_right(cal_days, td_date)
+    window = cal_days[lo:hi]
+    if not window:
+        return []
+    have = set(merged["date"].tolist())
+    return [d for d in window if d not in have]
+
+
 def _persist(paths: Paths, code: str, df: pd.DataFrame, td: str, persist_today: bool) -> None:
     """写 raw/kline 缓存。persist_today=False 时丢掉 date >= td 的行（盘中半成品不落盘）。"""
     out = df if persist_today else df[df["date"] < td].reset_index(drop=True)
@@ -126,6 +146,13 @@ def fetch_klines(provider: DataProvider, paths: Paths, cfg: dict, codes: list[st
     now = max(normalize_date(today) if today else shanghai_today(), td)
     lag = days_between(td, now)
     full_days = kline_days + (0 if lag == 0 else math.ceil(lag * 5 / 7) + 2)
+
+    # 交易日历：补缺后断言 (缓存末日, td] 每个交易日都有 bar；不可用时静默跳过（不影响取数）
+    _cal_days = None
+    try:
+        _cal_days = TradeCalendar(paths, provider, today=now).days
+    except Exception:
+        _cal_days = None
 
     codes6 = list(dict.fromkeys(normalize_code(c) for c in codes))
     caches: dict[str, Optional[pd.DataFrame]] = {c: load_cache(paths, c) for c in codes6}
@@ -207,6 +234,11 @@ def fetch_klines(provider: DataProvider, paths: Paths, cfg: dict, codes: list[st
                     continue
                 merged = pd.concat([cache, new], ignore_index=True).drop_duplicates("date", keep="last")
                 merged = merged.sort_values("date").reset_index(drop=True)
+                # 补缺保险：缺口 (缓存末日, td] 内任一交易日缺失 -> 该只全量重拉
+                miss = _gap_trading_days_missing(merged, cache["date"].iloc[-1], td, _cal_days) if _cal_days else []
+                if miss:
+                    refetch.append(c)
+                    continue
                 if not merged.equals(cache):
                     _persist(paths, c, merged, td, persist_today)
             else:
