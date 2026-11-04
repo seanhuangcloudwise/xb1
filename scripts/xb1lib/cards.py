@@ -296,44 +296,99 @@ def _fmt_mv(v: float) -> str:
     return f"{v / 1e12:.2f} 万亿"
 
 
-def _market_svg(series: "pd.DataFrame") -> str:
-    """活跃市值走势（近 _MV_DAYS 日），面积 + 折线。"""
+def _market_kline_svg(series: "pd.DataFrame") -> str:
+    """活跃市值日 K 图：主图蜡烛（收盘价 K 线）+ MA20，副图成交额。
+
+    活跃市值每日只有一个数值，没有真实的日内 OHLC，因此：
+      开盘 = 前一日数值，收盘 = 当日数值，最高/最低 = 两者的较大/较小值
+    即"实体柱"，不虚构影线。红涨绿跌与个股 K 线一致。
+    """
     if series is None or not len(series):
         return '<p class="muted">暂无活跃市值数据</p>'
-    s = series.tail(_MV_DAYS).reset_index(drop=True)
+    s = series.tail(_MV_DAYS + 1).reset_index(drop=True)
     vals = [float(x) for x in s["active_mv"]]
-    if not vals:
-        return '<p class="muted">暂无活跃市值数据</p>'
-    w, h = 640.0, 210.0
-    pad_l, pad_r, pad_t, pad_b = 6.0, 58.0, 12.0, 22.0
-    lo, hi = min(vals), max(vals)
+    if len(vals) < 3:
+        return '<p class="muted">数据不足，无法绘制 K 线</p>'
+    opens, closes = vals[:-1], vals[1:]          # 首根用前一日做开盘，避免出现零实体
+    highs = [max(o, c) for o, c in zip(opens, closes)]
+    lows = [min(o, c) for o, c in zip(opens, closes)]
+    amounts = [float(x) if pd.notna(x) else 0.0 for x in s["amount"].iloc[1:]]
+    dates = [str(x) for x in s["date"].iloc[1:]]
+    ma20 = []
+    for i in range(len(closes)):
+        win = closes[max(0, i - 19): i + 1]
+        ma20.append(sum(win) / len(win) if len(win) >= 5 else None)
+
+    w = 640.0
+    pad_l, pad_r = 6.0, 58.0
+    p_t, p_h = 12.0, 168.0
+    gap, v_h, ax_h = 10.0, 46.0, 18.0
+    h = p_t + p_h + gap + v_h + ax_h
+    plot_r = w - pad_r
+    n = len(closes)
+    step = (plot_r - pad_l) / max(1, n)
+
+    lo = min(lows + [m for m in ma20 if m])
+    hi = max(highs + [m for m in ma20 if m])
     if hi <= lo:
         hi, lo = hi * 1.001 + 1, lo * 0.999 - 1
+    pad = (hi - lo) * 0.05
+    lo, hi = lo - pad, hi + pad
     span = hi - lo
-    n = len(vals)
 
     def x(i):
-        return pad_l + (w - pad_l - pad_r) * (i / max(1, n - 1))
+        return pad_l + (i + 0.5) * step
 
     def y(v):
-        return pad_t + (h - pad_t - pad_b) * (hi - v) / span
+        return p_t + p_h * (hi - v) / span
 
-    parts = [f'<svg class="chart" viewBox="0 0 {w:.0f} {h:.0f}" role="img" aria-label="活跃市值走势">']
+    vmax = max(amounts) if amounts else 0.0
+    v_top = p_t + p_h + gap
+
+    def vy(v):
+        return v_top + v_h - (v_h * v / vmax if vmax else 0.0)
+
+    bw = max(1.2, min(9.0, step * 0.62))
+    parts = [f'<svg class="chart" viewBox="0 0 {w:.0f} {h:.0f}" role="img" '
+             f'aria-label="活跃市值日K图">']
+
     for k in range(4):
         v = hi - span * k / 3.0
         yy = y(v)
-        parts.append(f'<line x1="{pad_l}" y1="{yy:.1f}" x2="{w - pad_r}" y2="{yy:.1f}" stroke="#1e293b"/>')
-        parts.append(f'<text x="{w - pad_r + 4}" y="{yy + 3.4:.1f}" class="axis">{v / 1e12:.1f}</text>')
-    pts = " ".join(f"{x(i):.1f},{y(v):.1f}" for i, v in enumerate(vals))
-    parts.append(f'<polygon points="{x(0):.1f},{h - pad_b:.1f} {pts} {x(n - 1):.1f},{h - pad_b:.1f}" '
-                 f'fill="rgba(37,99,235,.16)"/>')
-    parts.append(f'<polyline points="{pts}" fill="none" stroke="#2563eb" stroke-width="1.8" '
-                 f'stroke-linejoin="round"/>')
-    parts.append(f'<circle cx="{x(n - 1):.1f}" cy="{y(vals[-1]):.1f}" r="3" fill="#2563eb"/>')
+        parts.append(f'<line x1="{pad_l}" y1="{yy:.1f}" x2="{plot_r}" y2="{yy:.1f}" stroke="#1e293b"/>')
+        parts.append(f'<text x="{plot_r + 4}" y="{yy + 3.4:.1f}" class="axis">{v / 1e12:.2f}</text>')
+    parts.append(f'<line x1="{pad_l}" y1="{v_top + v_h}" x2="{plot_r}" y2="{v_top + v_h}" stroke="#1e293b"/>')
+
+    for i in range(n):
+        color = _C_UP if closes[i] >= opens[i] else _C_DOWN
+        cx = x(i)
+        top = y(max(opens[i], closes[i]))
+        hh = max(1.0, abs(y(opens[i]) - y(closes[i])))
+        chg = (closes[i] / opens[i] - 1) * 100 if opens[i] else 0.0
+        tip = (f'{dates[i]} 开{opens[i] / 1e12:.2f} 收{closes[i] / 1e12:.2f} '
+               f'高{highs[i] / 1e12:.2f} 低{lows[i] / 1e12:.2f} 万亿 '
+               f'日变化{chg:+.2f}% 成交额{amounts[i] / 1e8:.0f}亿')
+        parts.append("<g>")
+        parts.append(f"<title>{_e(tip)}</title>")
+        parts.append(f'<rect x="{cx - bw / 2:.1f}" y="{top:.1f}" width="{bw:.1f}" height="{hh:.1f}" fill="{color}"/>')
+        parts.append(f'<rect x="{cx - bw / 2:.1f}" y="{vy(amounts[i]):.1f}" width="{bw:.1f}" '
+                     f'height="{max(0.5, v_top + v_h - vy(amounts[i])):.1f}" fill="{color}" opacity="0.55"/>')
+        parts.append("</g>")
+
+    d, pen = "", False
+    for i, v in enumerate(ma20):
+        if v is None:
+            pen = False
+            continue
+        d += f'{"M" if not pen else "L"}{x(i):.1f} {y(v):.1f}'
+        pen = True
+    if d:
+        parts.append(f'<path d="{d}" fill="none" stroke="{_C_YELLOW}" stroke-width="1.3" opacity="0.9"/>')
+
     for i in (0, n // 2, n - 1):
         anchor = "start" if i == 0 else ("end" if i == n - 1 else "middle")
-        parts.append(f'<text x="{x(i):.1f}" y="{h - 6:.1f}" class="axis" text-anchor="{anchor}">'
-                     f'{_e(str(s["date"].iloc[i])[5:])}</text>')
+        parts.append(f'<text x="{x(i):.1f}" y="{h - 5:.1f}" class="axis" text-anchor="{anchor}">'
+                     f'{_e(dates[i][5:])}</text>')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -406,8 +461,8 @@ def _market_panel(series: "pd.DataFrame", cfg: dict) -> str:
   <p class="sub2">口径：当日成交额 ≥ {floor / 1e8:g} 亿元的个股流通市值之和（流通股本 = 成交量×100 ÷ 换手率）。
     <b>这是用本地日 K 构造的代理值，不是指南针原指标</b>，阈值 4% / -2.3% 沿用 Z 哥口径，未做校准。</p>
   <div class="kpis small">{kpi_html}</div>
-  <h4>活跃市值走势（近 {_MV_DAYS} 个交易日，单位：万亿元）</h4>
-  <div class="chartbox">{_market_svg(series)}</div>
+  <h4>活跃市值日K（近 {_MV_DAYS} 个交易日｜单位：万亿元｜副图为成交额）</h4>
+  <div class="chartbox">{_market_kline_svg(series)}</div>
   <h4>日变化（%）</h4>
   <div class="chartbox">{_chg_svg(series)}</div>
 </div>'''

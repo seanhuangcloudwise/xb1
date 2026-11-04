@@ -83,7 +83,11 @@ def test_cards_page_has_market_tab(tmp_path):
     assert 'data-tab="cards"' in html and 'data-tab="market"' in html
     assert 'id="panel-market"' in html
     assert "活跃市值（代理指标）" in html and "代理值" in html
+    assert "活跃市值日K" in html
     assert "<svg" in html
+    # K 线实体：红涨绿跌各若干根，且带悬浮提示
+    assert html.count('fill="#f6465d"') > 0 and html.count('fill="#2ebd85"') > 0
+    assert "开" in html and "收" in html and "万亿" in html
 
 
 def test_cards_page_without_series_shows_placeholder(tmp_path):
