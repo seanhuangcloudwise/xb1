@@ -297,41 +297,33 @@ def _fmt_mv(v: float) -> str:
 
 
 def _market_kline_svg(series: "pd.DataFrame") -> str:
-    """活跃市值日 K 图：主图蜡烛（收盘价 K 线）+ MA20，副图成交额。
-
-    活跃市值每日只有一个数值，没有真实的日内 OHLC，因此：
-      开盘 = 前一日数值，收盘 = 当日数值，最高/最低 = 两者的较大/较小值
-    即"实体柱"，不虚构影线。红涨绿跌与个股 K 线一致。
-    """
+    """0AMV 走势：指南针 STICKLINE 样式——从昨日数值连到今日数值的实心柱（红涨绿跌），
+    叠加 5 日 / 13 日成本均线 C5、C13。"""
     if series is None or not len(series):
         return '<p class="muted">暂无活跃市值数据</p>'
-    s = series.tail(_MV_DAYS + 1).reset_index(drop=True)
-    vals = [float(x) for x in s["active_mv"]]
-    if len(vals) < 3:
-        return '<p class="muted">数据不足，无法绘制 K 线</p>'
-    opens, closes = vals[:-1], vals[1:]          # 首根用前一日做开盘，避免出现零实体
-    highs = [max(o, c) for o, c in zip(opens, closes)]
-    lows = [min(o, c) for o, c in zip(opens, closes)]
-    amounts = [float(x) if pd.notna(x) else 0.0 for x in s["amount"].iloc[1:]]
-    dates = [str(x) for x in s["date"].iloc[1:]]
-    ma20 = []
-    for i in range(len(closes)):
-        win = closes[max(0, i - 19): i + 1]
-        ma20.append(sum(win) / len(win) if len(win) >= 5 else None)
+    s = series.tail(_MV_DAYS).reset_index(drop=True)
+    vals = [float(x) for x in s["amv"]]
+    if len(vals) < 2:
+        return '<p class="muted">数据不足</p>'
+    prev = [vals[0]] + vals[:-1]
+    c5 = [float(x) for x in s["c5"]]
+    c13 = [float(x) for x in s["c13"]]
+    amounts = [float(x) if pd.notna(x) else 0.0 for x in s["amount"]]
+    dates = [str(x) for x in s["date"]]
 
     w = 640.0
     pad_l, pad_r = 6.0, 58.0
-    p_t, p_h = 12.0, 168.0
-    gap, v_h, ax_h = 10.0, 46.0, 18.0
+    p_t, p_h = 12.0, 176.0
+    gap, v_h, ax_h = 10.0, 42.0, 18.0
     h = p_t + p_h + gap + v_h + ax_h
     plot_r = w - pad_r
-    n = len(closes)
+    n = len(vals)
     step = (plot_r - pad_l) / max(1, n)
 
-    lo = min(lows + [m for m in ma20 if m])
-    hi = max(highs + [m for m in ma20 if m])
+    lo = min(min(vals), min(c5), min(c13))
+    hi = max(max(vals), max(c5), max(c13))
     if hi <= lo:
-        hi, lo = hi * 1.001 + 1, lo * 0.999 - 1
+        hi, lo = hi * 1.001 + 1e-6, lo * 0.999 - 1e-6
     pad = (hi - lo) * 0.05
     lo, hi = lo - pad, hi + pad
     span = hi - lo
@@ -348,42 +340,34 @@ def _market_kline_svg(series: "pd.DataFrame") -> str:
     def vy(v):
         return v_top + v_h - (v_h * v / vmax if vmax else 0.0)
 
-    bw = max(1.2, min(9.0, step * 0.62))
-    parts = [f'<svg class="chart" viewBox="0 0 {w:.0f} {h:.0f}" role="img" '
-             f'aria-label="活跃市值日K图">']
-
+    bw = max(1.2, min(10.0, step * 0.66))
+    parts = [f'<svg class="chart" viewBox="0 0 {w:.0f} {h:.0f}" role="img" aria-label="活跃市值0AMV">']
     for k in range(4):
         v = hi - span * k / 3.0
         yy = y(v)
         parts.append(f'<line x1="{pad_l}" y1="{yy:.1f}" x2="{plot_r}" y2="{yy:.1f}" stroke="#1e293b"/>')
-        parts.append(f'<text x="{plot_r + 4}" y="{yy + 3.4:.1f}" class="axis">{v / 1e12:.2f}</text>')
+        parts.append(f'<text x="{plot_r + 4}" y="{yy + 3.4:.1f}" class="axis">{v:.2f}</text>')
     parts.append(f'<line x1="{pad_l}" y1="{v_top + v_h}" x2="{plot_r}" y2="{v_top + v_h}" stroke="#1e293b"/>')
 
     for i in range(n):
-        color = _C_UP if closes[i] >= opens[i] else _C_DOWN
-        cx = x(i)
-        top = y(max(opens[i], closes[i]))
-        hh = max(1.0, abs(y(opens[i]) - y(closes[i])))
-        chg = (closes[i] / opens[i] - 1) * 100 if opens[i] else 0.0
-        tip = (f'{dates[i]} 开{opens[i] / 1e12:.2f} 收{closes[i] / 1e12:.2f} '
-               f'高{highs[i] / 1e12:.2f} 低{lows[i] / 1e12:.2f} 万亿 '
-               f'日变化{chg:+.2f}% 成交额{amounts[i] / 1e8:.0f}亿')
+        color = _C_UP if vals[i] >= prev[i] else _C_DOWN
+        top, bot = y(max(vals[i], prev[i])), y(min(vals[i], prev[i]))
+        chg = (vals[i] / prev[i] - 1) * 100 if prev[i] else 0.0
+        tip = (f'{dates[i]} 0AMV {vals[i]:.3f} 万亿｜较前日 {chg:+.2f}%｜'
+               f'成交额 {amounts[i] / 1e8:.0f} 亿')
         parts.append("<g>")
         parts.append(f"<title>{_e(tip)}</title>")
-        parts.append(f'<rect x="{cx - bw / 2:.1f}" y="{top:.1f}" width="{bw:.1f}" height="{hh:.1f}" fill="{color}"/>')
-        parts.append(f'<rect x="{cx - bw / 2:.1f}" y="{vy(amounts[i]):.1f}" width="{bw:.1f}" '
-                     f'height="{max(0.5, v_top + v_h - vy(amounts[i])):.1f}" fill="{color}" opacity="0.55"/>')
+        parts.append(f'<rect x="{x(i) - bw / 2:.1f}" y="{top:.1f}" width="{bw:.1f}" '
+                     f'height="{max(1.0, bot - top):.1f}" fill="{color}"/>')
+        parts.append(f'<rect x="{x(i) - bw / 2:.1f}" y="{vy(amounts[i]):.1f}" width="{bw:.1f}" '
+                     f'height="{max(0.5, v_top + v_h - vy(amounts[i])):.1f}" fill="{color}" opacity="0.5"/>')
         parts.append("</g>")
 
-    d, pen = "", False
-    for i, v in enumerate(ma20):
-        if v is None:
-            pen = False
-            continue
-        d += f'{"M" if not pen else "L"}{x(i):.1f} {y(v):.1f}'
-        pen = True
-    if d:
-        parts.append(f'<path d="{d}" fill="none" stroke="{_C_YELLOW}" stroke-width="1.3" opacity="0.9"/>')
+    for arr, color, dash in ((c13, "#60a5fa", "4 3"), (c5, _C_YELLOW, "")):
+        d = "".join(f'{"M" if i == 0 else "L"}{x(i):.1f} {y(v):.1f}' for i, v in enumerate(arr))
+        dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+        parts.append(f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.4" '
+                     f'stroke-linejoin="round" opacity="0.95"{dash_attr}/>')
 
     for i in (0, n // 2, n - 1):
         anchor = "start" if i == 0 else ("end" if i == n - 1 else "middle")
@@ -393,78 +377,36 @@ def _market_kline_svg(series: "pd.DataFrame") -> str:
     return "".join(parts)
 
 
-def _chg_svg(series: "pd.DataFrame") -> str:
-    """日变化柱状图，标出 +4% / -2.3% 参考线。"""
-    if series is None or len(series) < 2:
-        return '<p class="muted">数据不足</p>'
-    s = series.tail(_MV_DAYS).reset_index(drop=True)
-    chg = [None] + [((float(s["active_mv"].iloc[i]) / float(s["active_mv"].iloc[i - 1]) - 1) * 100)
-                    if float(s["active_mv"].iloc[i - 1]) else None for i in range(1, len(s))]
-    vals = [c for c in chg if c is not None]
-    if not vals:
-        return '<p class="muted">数据不足</p>'
-    w, h = 640.0, 156.0
-    pad_l, pad_r, pad_t, pad_b = 6.0, 40.0, 10.0, 18.0
-    lo = min(min(vals), -2.3)
-    hi = max(max(vals), 4.0)
-    pad = max(0.4, (hi - lo) * 0.08)
-    lo, hi = lo - pad, hi + pad
-    span = hi - lo
-    n = len(chg)
-    bw = max(1.0, (w - pad_l - pad_r) / n * 0.62)
-
-    def x(i):
-        return pad_l + (w - pad_l - pad_r) * (i + 0.5) / n
-
-    def y(v):
-        return pad_t + (h - pad_t - pad_b) * (hi - v) / span
-
-    parts = [f'<svg class="chart" viewBox="0 0 {w:.0f} {h:.0f}" role="img" aria-label="活跃市值日变化">']
-    for lv, color, label in ((4.0, "#dc2626", "+4%"), (-2.3, "#16a34a", "-2.3%")):
-        parts.append(f'<line x1="{pad_l}" y1="{y(lv):.1f}" x2="{w - pad_r}" y2="{y(lv):.1f}" '
-                     f'stroke="{color}" stroke-width="1" stroke-dasharray="4 3" opacity=".8"/>')
-        parts.append(f'<text x="{w - pad_r + 3}" y="{y(lv) + 3:.1f}" class="axis">{label}</text>')
-    zero = y(0.0)
-    parts.append(f'<line x1="{pad_l}" y1="{zero:.1f}" x2="{w - pad_r}" y2="{zero:.1f}" stroke="#475569"/>')
-    for i, v in enumerate(chg):
-        if v is None:
-            continue
-        top = y(max(v, 0.0))
-        hh = max(0.8, abs(y(v) - zero))
-        color = _C_UP if v >= 0 else _C_DOWN
-        parts.append(f'<rect x="{x(i) - bw / 2:.1f}" y="{top:.1f}" width="{bw:.1f}" height="{hh:.1f}" '
-                     f'fill="{color}" opacity=".85"/>')
-    parts.append("</svg>")
-    return "".join(parts)
-
-
 def _market_panel(series: "pd.DataFrame", cfg: dict) -> str:
     from . import market as M
     if series is None or not len(series):
-        return '<div class="card"><h3>活跃市值</h3><p class="muted">暂无数据：先运行 run 拉取日 K 线。</p></div>'
+        return ('<div class="card"><h3>活跃市值 0AMV</h3>'
+                '<p class="muted">暂无数据：先运行 run 拉取日 K 线。</p></div>')
     s = M.summarize(series)
-    zone, zone_label = M.zone(s.get("chg"), s.get("cum3"))
-    floor = M.default_floor(cfg)
+    key = s.get("region", "unknown")
     chg = "-" if s.get("chg") is None else f"{s['chg']:+.2f}%"
-    cum3 = "-" if s.get("cum3") is None else f"{s['cum3']:+.2f}%"
     kpis = [
-        (_fmt_mv(s["active_mv"]), "当日活跃市值"),
-        (chg, "日变化"),
-        (cum3, "3 日累计"),
-        (f"{s['n_active']:,} / {s['n_total']:,}", "活跃家数 / 全部"),
-        (f"{s['ratio']:.1%}" if s.get("ratio") else "-", "占总流通市值"),
-        (f"{s['amount'] / 1e8:,.0f} 亿", "当日成交额"),
+        (f"{s['amv']:.3f} 万亿", "0AMV"),
+        (chg, "较前日"),
+        (f"{s['c5']:.3f}", "C5 成本均线"),
+        (f"{s['c13']:.3f}", "C13 成本均线"),
+        (f"{s['amount'] / 1e8:,.0f} 亿", "成交额"),
+        (f"{s['turnover'] * 100:.2f}%" if s.get("turnover") else "-", "全市场换手率"),
     ]
     kpi_html = "".join(f'<div class="kpi"><b>{_e(v)}</b><span>{_e(k)}</span></div>' for v, k in kpis)
+    legend = "".join(
+        f'<li><b>{_e(M.REGIONS[k][0])}</b>　{_e(M.REGIONS[k][1])}　→ {_e(M.REGIONS[k][2])}'
+        f'{"　← 当前" if k == key else ""}</li>' for k in M.REGION_ORDER)
     return f'''<div class="card">
-  <h3>活跃市值（代理指标）<span class="zone z-{_e(zone)}">{_e(zone_label)}</span></h3>
-  <p class="sub2">口径：当日成交额 ≥ {floor / 1e8:g} 亿元的个股流通市值之和（流通股本 = 成交量×100 ÷ 换手率）。
-    <b>这是用本地日 K 构造的代理值，不是指南针原指标</b>，阈值 4% / -2.3% 沿用 Z 哥口径，未做校准。</p>
+  <h3>活跃市值 0AMV<span class="zone z-{_e(key)}">{_e(s.get("region_name", "-"))}</span>
+      <span class="act">建议：{_e(s.get("region_action", "-"))}</span></h3>
+  <p class="sub2">口径：<code>0AMV = SMA(全市场成交额,10,1)</code>，柱体从昨日连到今日（红涨绿跌），
+    叠加 5 日 / 13 日成本均线（DMA 加权）。<b>用本地股票池成交额复刻，不是指南针原值</b>，
+    形态与拐点可比，绝对数值不等价。</p>
   <div class="kpis small">{kpi_html}</div>
-  <h4>活跃市值日K（近 {_MV_DAYS} 个交易日｜单位：万亿元｜副图为成交额）</h4>
   <div class="chartbox">{_market_kline_svg(series)}</div>
-  <h4>日变化（%）</h4>
-  <div class="chartbox">{_chg_svg(series)}</div>
+  <h4>四区域判别（0AMV 与两条成本均线的相对位置）</h4>
+  <ul class="regions">{legend}</ul>
 </div>'''
 
 
@@ -640,9 +582,13 @@ h1 .thin{font-weight:400;color:var(--muted);font-size:14px;margin-left:8px}
 .chartbox{background:#0b1220;border-radius:10px;padding:8px 6px 4px}
 .chartbox .chart .axis{fill:#94a3b8;font-size:10.5px}
 .zone{font-size:12px;font-weight:600;border-radius:6px;padding:2px 8px}
-.z-bull{background:#fee2e2;color:#b91c1c}
-.z-bear{background:#dcfce7;color:#15803d}
-.z-neutral{background:#fef3c7;color:#b45309}
+.z-up{background:#fee2e2;color:#b91c1c}
+.z-down_hesitate{background:#ffedd5;color:#c2410c}
+.z-down{background:#dcfce7;color:#15803d}
+.act{font-size:12px;font-weight:400;color:var(--muted)}
+ul.regions{margin:0;padding-left:18px;font-size:12.5px;color:#334155;line-height:1.9}
+ul.regions b{font-weight:600}
+.z-up_hesitate{background:#fef3c7;color:#b45309}
 .z-unknown{background:#e2e8f0;color:#475569}
 """
 

@@ -190,7 +190,7 @@ v1.0 是“一个本地脚本 + 定时任务”。v1.1 改为 **“Skill = 确�
 | `data/reports/{YYYY-MM-DD}/b1_report.xlsx` | 完整 Excel 报告 | 永久 | 可重算 |
 | `data/reports/{YYYY-MM-DD}/b1_report.md` | 完整 Markdown 日报 | 永久 | 可重算 |
 | `data/reports/{YYYY-MM-DD}/b1_cards.html` | K线卡片 · B1 信号视图（每只信号股一张日 K 线卡片，自包含 HTML） | 永久 | 可重算 |
-| `data/cache/market/active_mv.parquet` | 活跃市值代理序列缓存（可删，重算约 8 秒） | — | 可重算 |
+| `data/cache/market/amv.parquet` | 0AMV 活跃市值序列缓存（可删，重算约 8 秒） | — | 可重算 |
 | `data/reports/{YYYY-MM-DD}/kline_cards[-视图].html` | K线卡片（全部股票，`kline` 生成，含无信号，按等级排序） | 永久 | 可重算 |
 | `data/reports/latest` | 指向最近一次报告目录的软链接 | — | 可 |
 | `data/history/signals.parquet` | 每日信号流水（日期、代码、等级、得分、J、止损价…），**回测底座** | 永久，只追加 | **否，务必备份** |

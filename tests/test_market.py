@@ -1,4 +1,4 @@
-"""market.py：活跃市值代理序列 + 卡片页标签页。"""
+"""market.py：0AMV（活跃市值）复刻序列 + 四区域判别 + 卡片页标签页。"""
 from __future__ import annotations
 
 import pandas as pd
@@ -9,10 +9,11 @@ from xb1lib import market
 from xb1lib.paths import Paths
 
 D = "2026-11-03"
+COLS = ["date", "amv", "c5", "c13", "c34", "inf", "amount", "turnover", "n"]
 
 
-def _cfg(floor=1e8):
-    return {"fetch": {"amount_unit": 1}, "market": {"active_amount_floor": floor}}
+def _cfg():
+    return {"fetch": {"amount_unit": 1}}
 
 
 def _seed(tmp_path, codes=("600519", "000001", "300750")):
@@ -23,44 +24,56 @@ def _seed(tmp_path, codes=("600519", "000001", "300750")):
     return paths
 
 
-def test_series_columns_and_tail(tmp_path):
+def _row(amv, c5, c13):
+    return {"amv": amv, "c5": c5, "c13": c13}
+
+
+def test_series_shape_and_scale(tmp_path):
     paths = _seed(tmp_path)
     s = market.compute_series(paths, _cfg(), days=60)
-    assert list(s.columns) == ["date", "active_mv", "total_mv", "n_active", "n_total", "amount"]
+    assert list(s.columns) == COLS
     assert len(s) == 60 and s["date"].is_monotonic_increasing
-    assert s["active_mv"].iloc[-1] > 0 and s["n_total"].iloc[-1] == 3
+    assert (s["amv"] > 0).all() and s["n"].iloc[-1] == 3
+    # 全市场换手率是百分数量级（0~20%），不是 0.0001
+    assert 0 < float(s["turnover"].iloc[-1]) < 0.2
 
 
-def test_floor_filters_active_names(tmp_path):
+def test_cost_lines_are_finite_and_fan_out(tmp_path):
     paths = _seed(tmp_path)
-    all_s = market.compute_series(paths, _cfg(floor=0), days=30)
-    big_s = market.compute_series(paths, _cfg(floor=1e12), days=30)
-    assert all_s["n_active"].iloc[-1] == 3
-    assert big_s["n_active"].iloc[-1] == 0
-    active = big_s["active_mv"].iloc[-1]
-    assert active == 0 or pd.isna(active)
+    s = market.compute_series(paths, _cfg(), days=120)
+    last = s.iloc[-1]
+    for col in ("c5", "c13", "c34", "inf"):
+        assert pd.notna(last[col]) and last[col] > 0
+    # 加权不同 -> 长周期线更平滑，与短周期线不应完全相等
+    assert float(last["c5"]) != float(last["inf"])
 
 
 def test_stale_files_are_excluded(tmp_path):
-    """数据没更到最新交易日的旧文件不参与计算，避免口径跳变。"""
     paths = _seed(tmp_path)
     make_kline_df("600000", "2026-10-30", 100).to_parquet(paths.kline("600000"), index=False)
     s = market.compute_series(paths, _cfg(), days=10)
-    assert s["n_total"].iloc[-1] == 3          # 600000 被排除
+    assert s["n"].iloc[-1] == 3
 
 
-def test_summarize_and_zone():
-    s = pd.DataFrame({"date": ["2026-10-30", "2026-11-02", "2026-11-03", "2026-11-04"],
-                      "active_mv": [100.0, 100.0, 103.0, 108.0], "total_mv": [120.0] * 4,
-                      "n_active": [10] * 4, "n_total": [12] * 4, "amount": [1e12] * 4})
+@pytest.mark.parametrize("row,expected", [
+    (_row(1.20, 1.10, 1.00), "up"),
+    (_row(1.05, 1.00, 1.10), "up_hesitate"),
+    (_row(0.95, 1.00, 1.10), "down"),            # 0AMV<C5 且 C5<C13
+    (_row(0.90, 1.00, 0.95), "down_hesitate"),   # 0AMV<C5 但 C5>C13
+])
+def test_region_rules(row, expected):
+    key, name, rule, action = market.region_at(row)
+    assert key == expected and name == market.REGIONS[expected][0] and action
+
+
+def test_summarize_from_series(tmp_path):
+    paths = _seed(tmp_path)
+    s = market.compute_series(paths, _cfg(), days=80)
     m = market.summarize(s)
-    assert round(m["chg"], 2) == 4.85
-    assert m["up_days"] == 2          # 100 -> 100 不算上涨，连阳在此断开
-    assert m["ratio"] == pytest.approx(108 / 120)
-    assert market.zone(5.0, None)[0] == "bull"
-    assert market.zone(-3.0, None)[0] == "bear"
-    assert market.zone(0.5, 0.5)[0] == "neutral"
-    assert market.zone(None, None)[0] == "unknown"
+    assert m["date"] == D and m["region"] in market.REGIONS
+    assert m["region_name"] == market.REGIONS[m["region"]][0]
+    assert m["amv"] > 0 and m["n"] == 3
+    assert market.summarize(pd.DataFrame()) == {}
 
 
 def test_cache_reused_and_invalidated(tmp_path):
@@ -73,7 +86,7 @@ def test_cache_reused_and_invalidated(tmp_path):
     assert c["date"].iloc[-1] == D
 
 
-def test_cards_page_has_market_tab(tmp_path):
+def test_cards_page_has_amv_tab(tmp_path):
     from helpers_render import make_cfg, make_run
     from xb1lib import cards
     paths = _seed(tmp_path)
@@ -82,12 +95,9 @@ def test_cards_page_has_market_tab(tmp_path):
     html = cards.build_html(run, make_cfg(), frames=None, paths=paths, market_series=s)
     assert 'data-tab="cards"' in html and 'data-tab="market"' in html
     assert 'id="panel-market"' in html
-    assert "活跃市值（代理指标）" in html and "代理值" in html
-    assert "活跃市值日K" in html
-    assert "<svg" in html
-    # K 线实体：红涨绿跌各若干根，且带悬浮提示
-    assert html.count('fill="#f6465d"') > 0 and html.count('fill="#2ebd85"') > 0
-    assert "开" in html and "收" in html and "万亿" in html
+    assert "活跃市值 0AMV" in html and "成本均线" in html
+    assert "复刻" in html and "不是指南针原值" in html
+    assert html.count('fill="#f6465d"') + html.count('fill="#2ebd85"') > 0     # STICKLINE 柱
 
 
 def test_cards_page_without_series_shows_placeholder(tmp_path):
